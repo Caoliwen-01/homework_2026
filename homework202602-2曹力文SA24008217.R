@@ -14,6 +14,6 @@ set.seed(1111)
 y <- rnorm(n = 10, mean = 35, sd = 10)
 r <- check1(y, threshold = 35)
 data.frame(
-  值 = y,
-  是否高于35 = r
+  value = y,
+  bigger_than_35 = r
 ) 
