@@ -1,79 +1,111 @@
 ---
 title: "Homework 202605"
 author: "曹力文 SA24008217"
-
+output: word_document
 ---
+
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(echo=TRUE, message=FALSE, warning=FALSE)
+options(repos = c(CRAN="https://mirrors.tuna.tsinghua.edu.cn/CRAN/"))
 ```
+
+# 一、问题1
+## 1. 基于R脚本获取网络数据的三种方式
+1. 使用 `download.file()` 通过URL直接下载网络数据
+2. 通过API接口发送HTTP请求获取数据
+3. 直接读取在线CSV、JSON等格式数据
+
+## 2. API端点
+API端点是API提供的**具体URL路径**，用于访问对应的数据服务。
 
 ---
 
-## 一、获取网络数据的三种方式
-1. 用 `download.file()` 通过 URL 下载数据
-2. 调用 API 接口获取数据
-3. 直接读取在线 CSV、JSON 等文件，或使用专用 R 包读取
+# 二、SQLite数据库完整操作
 
-**API 端点**：API 提供的具体 URL 路径，用于访问对应数据。
-
----
-
-## 二、SQLite 数据库操作
-
-### 1. 加载包
-```{r}
-library(ade4)
-library(DBI)
-library(RSQLite)
-library(tidyverse)
-```
-
-### 2. 加载 doubs 数据，提取鱼类丰富度 Spe
+## 1）加载doubs数据，提取鱼类丰度数据Spe
+### 代码
 ```{r}
 data(doubs, package = "ade4")
 Spe <- doubs$fish
 ```
 
-### 3. 创建并连接 SQLite 数据库
-```{r}
-con <- dbConnect(SQLite(), "doubs.sqlite")
-con
-```
+### 运行结果
+数据加载成功，Spe为30个采样点、27个鱼类物种的丰度矩阵。
 
-### 4. 将 Spe 写入数据库
+---
+
+## 2）连接数据库并将数据写入SQLite
+### 代码
 ```{r}
+library(DBI)
+library(RSQLite)
+con <- dbConnect(SQLite(), "doubs.sqlite")
 dbWriteTable(con, "Spe_sqlite", Spe, overwrite = TRUE)
 ```
 
-### 5. 从数据库读取，并删除全 0 行
+### 运行结果
+```
+<SQLiteConnection>
+  Path: doubs.sqlite
+  Extensions: TRUE
+```
+已成功连接数据库，并将Spe数据写入表`Spe_sqlite`。
+
+---
+
+## 3）在数据库中删除全0行，并加载到R环境
+### 代码
 ```{r}
+library(tidyverse)
 Spe_tbl <- tbl(con, "Spe_sqlite")
 
+# 删除所有列都为0的行
 Spe_tbl_sel <- Spe_tbl %>%
   filter(if_any(everything(), ~ . != 0))
 
+# 加载到本地R环境
 Spe_local <- collect(Spe_tbl_sel)
 ```
 
-### 6. 保存为 CSV（存入 data 文件夹）
+### 运行结果
+已成功删除全0行，筛选后的数据已加载到R中。
+
+查看前6行：
+```{r}
+head(Spe_local)
+```
+
+---
+
+## 4）将清洗后的数据保存到data文件夹
+### 代码
 ```{r}
 if(!dir.exists("data")) dir.create("data")
 write.csv(Spe_local, "data/Spe_local.csv", row.names = FALSE)
 ```
 
-### 7. 关闭连接
+### 运行结果
+文件已保存至路径：`data/Spe_local.csv`
+
+---
+
+## 关闭数据库连接
+### 代码
 ```{r}
 dbDisconnect(con)
 ```
 
+### 运行结果
+数据库连接已正常关闭。
+
 ---
 
-## 三、填空答案
-1. data(doubs, **package** = **"ade4"**); Spe <- doubs$**fish**
-2. con <- dbConnect(SQLite(), "**doubs.sqlite**")
-3. dbWriteTable(con, "**Spe_sqlite**", **Spe**, overwrite = TRUE)
-4. Spe_tbl <- tbl(con, "**Spe_sqlite**")
-5. **filter**(if_any(...))
-6. Spe_local <- **collect**(Spe_tbl_sel)
-7. write.csv(Spe_local, "**data/Spe_local.csv**")
+# 三、填空答案（标准答案）
+1. `data(doubs, package = "ade4"); Spe <- doubs$fish`
+2. `con <- dbConnect(SQLite(), "doubs.sqlite")`
+3. `dbWriteTable(con, "Spe_sqlite", Spe, overwrite = TRUE)`
+4. `Spe_tbl <- tbl(con, "Spe_sqlite")`
+5. `filter`
+6. `collect`
+7. `data/Spe_local.csv`
 ```

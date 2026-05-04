@@ -1,6 +1,7 @@
 ---
 title: "Homework-202602"
 author: "曹力文 SA24008217"
+output: word_document
 ---
 问题：
 1. 在RStudio中开启R script新文件，通过CRAN库安装tidyverse包，按照规范，写一段代码，完成查找包、安装包和查看包。
