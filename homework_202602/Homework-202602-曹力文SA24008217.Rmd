@@ -1,0 +1,120 @@
+---
+title: "Homework-202602"
+author: "曹力文 SA24008217"
+---
+问题：
+1. 在RStudio中开启R script新文件，通过CRAN库安装tidyverse包，按照规范，写一段代码，完成查找包、安装包和查看包。
+2. 写一段R脚本，自定义一个函数，检查随机向量rnorm(n = 10, mean= 35, sd = 10）中的每个值是否高于阈值35（可以用for循环，也可用apply()家族）。
+
+
+
+```{r setup, include=FALSE}
+
+options(repos = c(CRAN = "https://mirrors.tuna.tsinghua.edu.cn/CRAN/"))
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+# 1. R包的查找、安装与加载
+
+## 1.1 检查 CRAN 上是否有 tidyverse
+```{r}
+available_pkgs <- rownames(available.packages())
+"tidyverse" %in% available_pkgs
+```
+
+## 1.2 加载 tidyverse（已安装，不再执行install）
+```{r}
+library(tidyverse)
+```
+
+## 1.3 查看帮助文档
+```{r}
+help(package = "tidyverse")
+```
+
+## 1.4 查看核心包列表
+```{r}
+tidyverse_packages()
+```
+
+## 1.5 查看包内函数
+```{r}
+# dplyr
+library(dplyr)
+ls("package:dplyr")
+
+# tidyr
+library(tidyr)
+ls("package:tidyr")
+
+# ggplot2
+library(ggplot2)
+ls("package:ggplot2")
+```
+
+## 1.6 查看函数参数
+```{r}
+args(dplyr::filter)
+```
+
+## 1.7 查看 diamonds 数据集
+```{r}
+data("diamonds", package = "ggplot2")
+head(diamonds)
+str(diamonds)
+summary(diamonds)
+```
+
+---
+
+# 2. 自定义函数：判断随机向量是否高于阈值 35
+
+## 2.1 生成可重复随机向量
+```{r}
+set.seed(123)
+x <- rnorm(n = 10, mean = 35, sd = 10)
+x
+```
+
+## 2.2 for 循环判断函数
+```{r}
+check_above_threshold <- function(x, threshold = 35) {
+  result <- logical(length(x))
+  for (i in seq_along(x)) {
+    result[i] <- x[i] > threshold
+  }
+  return(result)
+}
+
+# 运行
+check_above_threshold(x)
+```
+
+## 2.3 输出数据框
+```{r}
+result_df <- data.frame(
+  value = x,
+  above_35 = check_above_threshold(x)
+)
+print(result_df)
+```
+
+## 2.4 sapply 版本（apply 家族）
+```{r}
+check_above_threshold_apply <- function(x, threshold = 35) {
+  sapply(x, function(value) value > threshold)
+}
+
+# 运行
+check_above_threshold_apply(x)
+```
+
+## 2.5 结果数据框（sapply 版本）
+```{r}
+result_df_apply <- data.frame(
+  value = x,
+  above_35 = check_above_threshold_apply(x)
+)
+print(result_df_apply)
+```
+```
