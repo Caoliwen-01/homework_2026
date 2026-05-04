@@ -1,0 +1,178 @@
+---
+title: "Homework-08：时间序列预测建模"
+author: "曹力文 SA24008217"
+date: "`r Sys.Date()`"
+output:
+  word_document: default
+  html_document: default
+---
+
+## 作业要求
+
+1.  筛选 Doubs 河 VOLPla 站点中有关 CHE 鱼类生物量的记录，构建时间序列。
+2.  使用滞后特征和随机森林，递归预测 2019–2020 年的生物量。
+3.  绘图展示历史值与预测值的衔接，并评估预测精度。
+
+
+问题1：
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+# 1. 加载工具包
+library(tidyverse)
+library(randomForest)
+library(fpp2)
+library(lubridate)  # 用于处理日期
+
+# 2. 读取数据（手动选择文件，避免路径错误）
+data <- read.table(file.choose(), header = TRUE)
+
+# 3. 筛选VOLPla站点和CHE物种的数据
+mydata <- data |>
+  subset(STATION == "VOLPla" & SP == "CHE") |>
+  select(DATE, BIOMASS)
+
+# --------------------------
+# 关键修正：处理日期，补全年份，构建完整时间序列
+# --------------------------
+# 把DATE字段转成年份（比如"1995-01-01" → 1995）
+mydata$YEAR <- year(ymd(mydata$DATE))
+
+# 按年份聚合生物量（取每年的平均值）
+yearly_data <- mydata %>%
+  group_by(YEAR) %>%
+  summarise(BIOMASS = mean(BIOMASS, na.rm = TRUE)) %>%
+  ungroup()
+
+# 补全1994-2020的所有年份，构建完整年份序列
+full_years <- data.frame(YEAR = 1994:2020)
+full_data <- left_join(full_years, yearly_data, by = "YEAR")
+
+# 用线性插值填充缺少年份的生物量（避免NA）
+library(zoo)
+full_data$BIOMASS <- na.approx(full_data$BIOMASS, rule = 2)
+
+# 构建正确的时间序列，start=1994，end=2020，长度为27年（1994-2020）
+ts <- ts(full_data$BIOMASS, start = 1994, frequency = 1)
+
+# 验证一下：看时间序列的年份范围
+print(time(ts)) # 显示1994-2020，说明构建成功
+```
+
+这部分主要完成两项任务：从原始数据中筛选出目标记录，并构建用于后续预测的完整时间序列。
+原始数据包含了多站点、多物种、多年的鱼类生物量调查记录。首先使用 subset() 筛选出站点为 VOLPla、物种为 CHE 的观测，并通过 select() 仅保留 DATE（日期）和 BIOMASS（生物量）两列。
+由于原始记录的日期格式为 YYYY-MM-DD，而分析需要年度数据，因此使用 lubridate 包中的 year() 函数提取年份，并按年份进行聚合（group_by(YEAR) + summarise），取每年生物量的均值作为该年的代表值。这一步将多个同日记录合并为单一的年度值，同时消除了年内采样时间差异带来的噪声。
+原始数据的时间覆盖范围为 1994–2020 年，但存在部分年份无观测记录的情况。为构建等间距的完整时间序列，首先生成一个包含 1994–2020 所有年份的数据框，然后通过 left_join() 将其与聚合后的年度数据合并，缺失年份的生物量被填充为 NA。接着使用 zoo 包中的 na.approx() 函数对这些缺失值进行线性插值（rule = 2 确保首尾年份也能被插值），从而得到连续的年度生物量序列。
+最后，用 ts() 函数将插值后的生物量向量转换为 R 时间序列对象，指定起始年份为 1994、频率为 1（年度数据）。通过打印 time(ts) 确认时间跨度覆盖 1994–2020 共 27 年，表明时间序列构建成功。该序列将用于后续的平稳化处理与递归预测建模。
+
+
+问题2：
+```{r}
+# --------------------------
+# 4. 划分训练集：1994-2018
+ts_org <- window(ts, end = 2018)
+
+# 5. 数据预处理：对数+差分
+ts_trf <- ts_org |> log() |> diff(1)
+
+# 6. 参数设置
+lag_order <- 2
+horizon <- 2
+
+# 7. 构建滞后矩阵
+ts_mbd <- embed(ts_trf, lag_order + 1)
+
+# 8. 训练集输入输出
+Y_train <- ts_mbd[, 1]
+X_train <- ts_mbd[, -1]
+
+# 9. 准备测试集：2019-2020（现在ts覆盖到2020）
+y_test <- window(ts, start = 2019, end = 2020)
+x_test <- ts_mbd[nrow(ts_mbd), c(1:lag_order)]
+
+# 10. 随机森林预测
+pred_rf <- numeric(horizon)
+for (i in 1:horizon){
+  set.seed(1)
+  fit_rf <- randomForest(X_train, Y_train)
+  pred_rf[i] <- predict(fit_rf, x_test)
+  Y_train <- Y_train[-1]
+  X_train <- X_train[-nrow(X_train), ]
+}
+
+# 查看预测的差分结果
+pred_rf
+```
+这部分内容使用**滞后特征**将时间序列转化为监督学习问题，再通过**随机森林**进行非线性回归，最后采用**递归策略**实现多步预测。
+
+- **滞后特征构建**：  
+  设滞后阶数 `lag_order = 2`，即使用过去两年的观测值预测下一年的值。首先对训练集（1994–2018）进行对数变换和一次差分，使其平稳；然后利用 `embed()` 函数将一维序列重组成矩阵，其中第一列为当前值（目标变量），后两列为前两年的值（预测变量）。
+
+- **递归多步预测**：  
+  预测视界 `horizon = 2`（2019 年和 2020 年）。由于真实未来值未知，不能一次预测多步，因此采用递归方式：
+  1. 用已知的 `X_train` 和 `Y_train` 训练随机森林模型；
+  2. 输入最近的滞后值（`x_test`），预测第一步（2019 年）；
+  3. 将第一步的预测值与历史数据拼接，更新 `x_test` 和训练集（动态滚动）；
+  4. 再次训练模型，输入新的滞后值，预测第二步（2020 年）。
+
+- **模型特点**：  
+  `randomForest()` 不需要对数据分布预设假设，能自动学习滞后值之间复杂的非线性依赖关系，适合生态学时间序列。
+
+问题3：
+```{r}
+# 11. 反变换，还原成真实生物量
+exp_term <- exp(cumsum(pred_rf))
+last_obs <- as.vector(tail(ts_org, 1))
+backtrans_fc <- last_obs * exp_term
+y_pred <- ts(backtrans_fc, start = 2019, frequency = 1)
+
+# 查看最终预测值
+y_pred
+
+# 12. 模型精度评估
+forecast::accuracy(as.numeric(y_pred), as.numeric(y_test))
+
+# 13. 拿好历史数据的最后一个点（2018年的真实生物量）
+last_year_val <- as.numeric(tail(ts_org, 1))
+
+# 14. 构建「衔接版预测序列」：从2018年的真实值开始，延伸到2020年的预测值
+pred_full_years <- c(2018, 2019, 2020)  # 时间戳：2018→2019→2020
+pred_full_vals <- c(last_year_val, as.numeric(y_pred))  # 数值：真实值→预测值→预测值
+
+# 15. 先画训练集（1994-2018），设置x轴到2021，给预测线留位置，最后画衔接后的预测线
+if (exists("ts_org") && exists("ts") && exists("y_pred") &&
+    length(ts_org) > 0 && length(y_pred) > 0) {
+  
+  # 绘制训练集（1994-2018，黑色实线）
+  plot(
+    1994:2018, as.numeric(ts_org),
+    type = "l", col = "black", lwd = 1,
+    xlim = c(1994, 2021),
+    ylim = range(ts, y_pred),
+    xlab = "Year",
+    ylab = "Biomass",
+    main = "CHE Biomass: Observed (1994-2018) and Predicted (2019-2020)"
+  )
+  
+  # 叠加预测线（从2018真实值连接到2019、2020预测值，红色）
+  lines(pred_full_years, pred_full_vals, col = "red", lwd = 2)
+  
+  # 添加图例
+  legend("topleft", 
+         legend = c("Observed (1994-2018)", "Predicted (2019-2020)"),
+         col = c("black", "red"), lwd = c(1, 2))
+  
+} else {
+  message("绘图跳过：ts_org, ts 或 y_pred 未正确生成，请检查前面步骤。")
+}
+
+```
+最后这部分主要包含两个方面：
+**预测结果的还原与绘图**：  
+  模型输出的是对数差分值，需通过逆变换还原为原始生物量：先取累计和的指数（还原差分+对数），再乘以训练集最后一个真实值（2018 年的生物量），得到 2019 年和 2020 年的预测值。  
+  绘图时，将 2018 年的真实值与 2019、2020 年的预测值连接成一条红色折线，叠加在 1994–2018 年训练数据的黑色折线上，直观展示历史值与预测值的衔接。
+
+- **预测精度评估**：  
+  使用 `forecast::accuracy()` 计算预测值 `y_pred` 与真实值 `y_test` 之间的常用误差指标，包括ME、RMSE、MAE、MPE、MAPE 等常用误差指标。其中 RMSE 和 MAE 越小，表明预测越准确。结果显示 RMSE = 0.188，MAE = 0.143，MAPE = 2.95%，各项误差指标均较小，表明该递归预测模型对 CHE 鱼类生物量的预测精度较高，能够较好地捕捉其年际变化趋势。其中RMSE = 0.188 说明预测值与真实值的平均偏差约为 0.19 个生物量单位，相对于 CHE 生物量多年均值（约 4.0）而言，误差在可接受范围内。
