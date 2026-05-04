@@ -1,0 +1,79 @@
+---
+title: "Homework 202605"
+author: "曹力文 SA24008217"
+
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+---
+
+## 一、获取网络数据的三种方式
+1. 用 `download.file()` 通过 URL 下载数据
+2. 调用 API 接口获取数据
+3. 直接读取在线 CSV、JSON 等文件，或使用专用 R 包读取
+
+**API 端点**：API 提供的具体 URL 路径，用于访问对应数据。
+
+---
+
+## 二、SQLite 数据库操作
+
+### 1. 加载包
+```{r}
+library(ade4)
+library(DBI)
+library(RSQLite)
+library(tidyverse)
+```
+
+### 2. 加载 doubs 数据，提取鱼类丰富度 Spe
+```{r}
+data(doubs, package = "ade4")
+Spe <- doubs$fish
+```
+
+### 3. 创建并连接 SQLite 数据库
+```{r}
+con <- dbConnect(SQLite(), "doubs.sqlite")
+con
+```
+
+### 4. 将 Spe 写入数据库
+```{r}
+dbWriteTable(con, "Spe_sqlite", Spe, overwrite = TRUE)
+```
+
+### 5. 从数据库读取，并删除全 0 行
+```{r}
+Spe_tbl <- tbl(con, "Spe_sqlite")
+
+Spe_tbl_sel <- Spe_tbl %>%
+  filter(if_any(everything(), ~ . != 0))
+
+Spe_local <- collect(Spe_tbl_sel)
+```
+
+### 6. 保存为 CSV（存入 data 文件夹）
+```{r}
+if(!dir.exists("data")) dir.create("data")
+write.csv(Spe_local, "data/Spe_local.csv", row.names = FALSE)
+```
+
+### 7. 关闭连接
+```{r}
+dbDisconnect(con)
+```
+
+---
+
+## 三、填空答案
+1. data(doubs, **package** = **"ade4"**); Spe <- doubs$**fish**
+2. con <- dbConnect(SQLite(), "**doubs.sqlite**")
+3. dbWriteTable(con, "**Spe_sqlite**", **Spe**, overwrite = TRUE)
+4. Spe_tbl <- tbl(con, "**Spe_sqlite**")
+5. **filter**(if_any(...))
+6. Spe_local <- **collect**(Spe_tbl_sel)
+7. write.csv(Spe_local, "**data/Spe_local.csv**")
+```

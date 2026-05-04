@@ -1,0 +1,97 @@
+---
+title: "Homework 04"
+author: "曹力文 SA24008217"
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning=FALSE)
+```
+
+# 1. 机器学习建模与传统统计模型的不同
+
+（1）建模目标
+传统统计模型以解释变量关系、参数推断为核心，强调模型的可解释性与实际意义。机器学习模型以预测精度与泛化能力为目标，更关注在新数据上的预测效果。
+（2）建模算法
+传统统计模型需要预先设定模型形式（如线性回归），再用最小二乘法、极大似然估计拟合参数。机器学习不依赖强模型假设，通过算法从数据中自动学习规律，灵活度更高。
+（3）模型评估
+传统统计模型使用显著性检验、置信区间等统计推断方式评估合理性。机器学习依靠训练、测试集划分与交叉验证，以 RMSE、R²、MAE 等预测指标评价性能。
+
+---
+
+# 2. 生态学树模型建模与 caret 填空
+
+## 2.1 加载包与数据
+```{r}
+library(ade4)
+library(dplyr)
+library(caret)
+
+data(doubs, package = "ade4")
+```
+
+
+## 2.2 计算鱼类总丰度 abund
+```{r}
+fish_data <- doubs$fish
+env_data  <- doubs$env
+
+abund <- rowSums(fish_data)
+model_data <- env_data %>% mutate(abund = abund)
+```
+
+## 2.3 划分训练集和测试集
+```{r}
+set.seed(123)
+train_index <- createDataPartition(model_data$abund, p = 0.8, list = FALSE)
+
+training_data <- model_data[train_index, ]
+testing_data  <- model_data[-train_index, ]
+```
+
+
+## 2.4 设置交叉验证控制
+```{r}
+fitControl <- trainControl(
+  method = "repeatedcv",
+  number = 10,
+  repeats = 5
+)
+```
+
+## 2.5 训练随机森林模型
+grid <- expand.grid(.mtry = 1:10)
+
+model_rf <- train(
+  abund ~ .,
+  data = train_data,
+  method = "rf",
+  preProcess = c("center", "scale"),
+  trControl = fitControl,
+  tuneGrid = grid,
+  ntree = 1000
+)
+
+## 2.6 模型评估
+pred <- predict(model_rf, newdata = test_data)
+postResample(pred, test_data$abund)
+
+## 2.7 填空题答案
+1. `method = "rf"`
+2. `method = "repeatedcv"`
+3. `method = "rf"`
+4. `preProcess = c("scale", "center")`
+5. `tuneGrid = grid` 与 `ntree = 500`
+
+---
+
+# 3. 递归特征消除（RFE）与树模型特征选择
+
+## 3.1 什么是递归特征消除 RFE？
+递归特征消除是一种包装式特征选择方法。递归特征消除就是先全特征建模，按重要性删掉不重要的特征，再重新建模，反复做，最后选出效果最好、数量最少的特征组合。
+
+## 3.2 为何随机森林等树模型无需单独特征选择？
+（1）树模型在构建的时候自己就会选特征，节点分裂时会自动挑对分类 / 预测有用的变量。
+（2）模型跑完可以直接输出特征重要性，不用额外再筛选。
+（3）树模型对共线性、量纲差异不敏感，比较稳健。
+所以随机森林通常不需要单独做特征选择。

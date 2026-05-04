@@ -1,0 +1,48 @@
+---
+title: "Homework2026-03"
+author: "曹力文 SA24008217"
+
+---
+
+# Homework2026-03 作业
+# 数据处理与可视化
+
+## 一、数据处理（doubs 数据集 env）
+```{r, message=FALSE, warning=FALSE}
+
+
+library(ade4)
+library(dplyr)
+library(ggplot2)
+
+data(doubs)
+env <- doubs$env
+
+result <- env |>
+  select(dfs, alt, oxy, pH) |>
+  rename(distance = dfs, oxygen = oxy) |>
+  filter(alt > 200) |>
+  arrange(desc(alt)) |>
+  mutate(oxygen_category = ifelse(oxygen > 90, "High", "Low")) |>
+  group_by(oxygen_category) |>
+  summarise(
+    mean_alt = mean(alt, na.rm = TRUE),
+    mean_pH = mean(pH, na.rm = TRUE)
+  )
+
+result
+```
+
+## 二、数据可视化
+```{r}
+
+
+# 图1：alt vs oxy
+ggplot(data = doubs$env) +
+  geom_point(mapping = aes(x = alt, y = oxy))
+
+# 图2：按 dfs 着色
+ggplot(data = doubs$env) +
+  geom_point(mapping = aes(x = alt, y = oxy, color = dfs))
+```
+```
