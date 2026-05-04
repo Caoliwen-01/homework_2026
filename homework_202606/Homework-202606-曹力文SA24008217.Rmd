@@ -1,0 +1,241 @@
+---
+title: "Homework 202606"
+author: "曹力文 SA24008217"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+# 安装所需包（如果未安装）
+if (!require("ade4")) install.packages("ade4")
+if (!require("vegan")) install.packages("vegan")
+if (!require("ggplot2")) install.packages("ggplot2")
+if (!require("ggrepel")) install.packages("ggrepel")
+if (!require("ggdendro")) install.packages("ggdendro")
+# 加载分析所需包
+library(ade4)
+library(vegan)
+library(ggplot2)
+library(ggrepel)
+library(ggdendro)
+```
+
+## 问题1：QGIS空间数据处理
+本次任务首先需要在QGIS中完成Doubs河空间数据的获取与存储，具体操作步骤如下：
+1. **插件安装**：打开QGIS软件，进入插件管理器，安装`QuickMapServices`和`QuickOSM`两款插件，用于获取在线底图与OpenStreetMap开源空间数据。
+2. **数据下载**：通过QuickOSM插件，检索Doubs河相关的OpenStreetMap矢量要素，筛选出目标河流的矢量图层。
+3. **数据导出**：将筛选完成的Doubs河矢量图层导出为`doubs_river.shp`格式的Shapefile文件，完成本地数据的导出。
+4. **数据库存储**：将导出的Shapefile图层导入PostgreSQL空间数据库中，完成空间数据的持久化存储，支持后续的空间查询与分析。
+
+本次操作对应的空间数据文件`doubs_river.geojson`已同步准备完成，可用于后续空间数据的查看与处理。
+
+---
+
+## 问题2：基于Doubs数据集的探索性数据分析
+本次分析使用R内置的Doubs河流生态经典数据集，该数据集包含了Doubs河30个观测站点的鱼类群落丰度数据、环境变量数据以及站点地理坐标信息，我们将依次完成数据清理、群落相似性分析、环境变量PCA分析以及物种-环境关系的RDA分析。
+
+### 2.1 数据清理
+首先我们导入Doubs内置数据集，并删除无鱼观测站点：根据数据集特征，第8号站点为河流源头区域，无鱼类分布，为无效样本，我们将其移除，得到清理后的分析数据集：
+
+```{r data_clean}
+# 导入内置Doubs数据集
+data(doubs)
+# 查看原始数据集结构
+str(doubs)
+
+# 删除无鱼的第8号站点，生成清理后的数据集
+fish_clean <- doubs$fish[-8, ]
+env_clean <- doubs$env[-8, ]
+xy_clean <- doubs$xy[-8, ]
+
+# 查看清理后的数据维度
+cat("清理后鱼类数据维度：", dim(fish_clean), "\n")
+cat("清理后环境数据维度：", dim(env_clean), "\n")
+```
+
+清理后，我们得到了29个有效观测站点的数据集，移除了无鱼的无效样本，保证了后续分析的有效性。
+
+### 2.2 鱼类群落相似性聚类分析
+接下来我们对鱼类群落数据进行处理，分析不同站点间的鱼类群落相似性，具体步骤如下：
+1. 首先对鱼类丰度数据进行Hellinger转换，消除物种丰度的尺度差异，降低稀有种的权重；
+2. 基于转换后的数据计算站点间的欧式距离，衡量站点间的群落差异；
+3. 使用Ward最小方差法进行层次聚类，绘制聚类树展示站点间的群落相似性分组。
+
+```{r fish_cluster}
+# 1. 对鱼类丰度数据进行Hellinger转换
+spe_hel <- decostand(fish_clean, "hellinger")
+
+# 2. 计算站点间的欧式距离
+spe_dist <- dist(spe_hel)
+
+# 3. Ward最小方差层次聚类
+spe_clust <- hclust(spe_dist, method = "ward.D2")
+
+# 绘制美观的聚类树图，自动调整标签避免拥挤
+ggdendrogram(spe_clust, rotate = FALSE, size = 8) +
+  labs(title = "Doubs河站点鱼类群落Ward聚类图", 
+       x = "观测站点", y = "群落距离") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+```
+
+从聚类结果可以看到，不同站点的鱼类群落可以被划分为不同的组，对应河流不同河段的群落差异：上游站点与下游站点的鱼类群落存在明显的分异，符合河流生态的上下游梯度变化特征。
+
+### 2.3 环境变量的主成分分析（PCA）
+接下来我们对环境变量进行主成分分析，探索环境变量之间的相关性以及站点的环境梯度变化。
+
+#### 2.3.1 环境数据标准化
+首先对清理后的环境数据进行标准化（均值为0，标准差为1），消除不同环境变量的量纲差异，保证不同变量在分析中权重一致：
+
+```{r env_standard}
+# 对环境数据进行z-score标准化
+env_z <- vegan::decostand(env_clean, "standard")
+# 查看标准化后的数据前6行
+head(env_z)
+```
+
+#### 2.3.2 不同函数的PCA实现与双标图
+我们分别使用`stats`包的`prcomp()`函数和`vegan`包的`rda()`函数进行主成分分析，并绘制双标图进行结果对比：
+
+```{r env_pca_prcomp}
+# 1. 使用prcomp进行PCA分析
+pca_env_prcomp <- prcomp(env_z)
+# 查看PCA结果汇总
+summary(pca_env_prcomp)
+
+# 提取PCA的站点坐标
+site_scores <- as.data.frame(scores(pca_env_prcomp, choices = 1:2))
+site_scores$site <- rownames(site_scores)
+# 提取变量的载荷坐标
+loadings <- as.data.frame(pca_env_prcomp$rotation[, 1:2])
+loadings$var <- rownames(loadings)
+# 缩放载荷，匹配站点坐标的尺度
+loadings[,1:2] <- loadings[,1:2] * max(abs(site_scores[,1:2])) / max(abs(loadings[,1:2]))
+
+# 绘制美观的双标图，自动调整标签避免重叠
+ggplot() +
+  # 站点散点
+  geom_point(data = site_scores, aes(x = PC1, y = PC2), size = 2) +
+  # 站点标签，自动调整位置避免重叠
+  geom_text_repel(data = site_scores, aes(x = PC1, y = PC2, label = site), size = 3) +
+  # 变量箭头
+  geom_segment(data = loadings, aes(x = 0, y = 0, xend = PC1, yend = PC2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "red") +
+  # 变量标签
+  geom_text_repel(data = loadings, aes(x = PC1, y = PC2, label = var), 
+                  color = "red", size = 3.5) +
+  # 辅助线
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.7) +
+  # 标题和主题
+  labs(title = "PCA双标图（prcomp实现）", x = "PC1", y = "PC2") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+```
+
+```{r env_pca_rda}
+# 2. 使用rda进行PCA（无约束排序等价于PCA）
+pca_env_rda <- vegan::rda(env_z)
+# 查看PCA结果汇总
+summary(pca_env_rda)
+
+# 提取rda PCA的站点坐标
+site_scores_rda <- as.data.frame(scores(pca_env_rda, display = "sites"))
+site_scores_rda$site <- rownames(site_scores_rda)
+# 提取变量的载荷坐标
+loadings_rda <- as.data.frame(scores(pca_env_rda, display = "species"))
+loadings_rda$var <- rownames(loadings_rda)
+
+# 绘制美观的双标图，自动调整标签避免重叠
+ggplot() +
+  geom_point(data = site_scores_rda, aes(x = PC1, y = PC2), size = 2) +
+  geom_text_repel(data = site_scores_rda, aes(x = PC1, y = PC2, label = site), size = 3) +
+  geom_segment(data = loadings_rda, aes(x = 0, y = 0, xend = PC1, yend = PC2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "red") +
+  geom_text_repel(data = loadings_rda, aes(x = PC1, y = PC2, label = var), 
+                  color = "red", size = 3.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.7) +
+  labs(title = "PCA双标图（rda实现）", x = "PC1", y = "PC2") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+```
+
+#### 2.3.3 PCA双标图解释
+从`rda`实现的PCA双标图中，我们可以得到以下结论：
+1. **轴的解释度**：第一主成分（PC1）解释了58.6%的环境变异，第二主成分（PC2）解释了20.2%的变异，两个轴共同解释了超过70%的环境变量总变异，能够很好的概括环境梯度的主要特征。
+2. **变量相关性**：箭头代表环境变量，箭头的夹角代表变量的相关性：夹角越小，正相关性越强；夹角接近180度，负相关性越强。例如，海拔（alt）与氧气含量（oxy）呈现明显的正相关，而与硝酸盐（nit）、铵盐（amm）等营养盐呈现明显的负相关，这符合河流的基本特征：上游海拔高、营养盐浓度低、水体氧气含量高，下游海拔低、营养盐浓度高、氧气含量相对较低。
+3. **站点分布**：图中的点代表观测站点，从左到右呈现出明显的上游到下游的梯度变化，上游站点集中在图的左侧，下游站点集中在图的右侧，体现了河流环境的连续梯度变化规律。
+
+### 2.4 物种-环境关系的冗余分析（RDA）
+最后我们分析鱼类群落与环境变量之间的关系，首先需要选择合适的排序模型，然后进行变量选择，最终完成RDA分析。
+
+#### 2.4.1 排序模型选择
+排序模型的选择需要基于数据的响应梯度长度，我们首先通过去趋势对应分析（DCA）判断排序模型的选择：
+- 当DCA第一轴的长度小于3时，数据的响应梯度较短，选择线性模型RDA；
+- 当DCA第一轴的长度大于4时，数据的响应梯度较长，选择单峰模型CCA。
+
+```{r dca_check}
+# 对Hellinger转换后的鱼类数据进行DCA分析
+spe_dca <- decorana(spe_hel)
+spe_dca
+# 提取DCA1的长度，强制转换为数值类型避免类型错误
+dca1_length <- as.numeric(spe_dca$axis.lengths[1])
+cat("DCA第一轴长度：", round(dca1_length, 2), "\n")
+```
+
+本次分析中，DCA第一轴的长度为`r round(dca1_length, 2)`，小于3，因此我们选择线性模型RDA来分析鱼类群落与环境变量的关系。
+
+#### 2.4.2 环境变量选择
+接下来我们需要筛选最优的环境变量，去除冗余变量，提升模型的解释效率。我们通过`vegan`包的`ordiR2step`函数进行向前逐步选择，最大化调整后R平方，来筛选出对鱼类群落解释度最高的环境变量组合：
+
+```{r var_selection}
+# 构建空模型作为初始模型，全模型作为变量选择的上限
+rda_empty <- rda(spe_hel ~ 1, data = env_z)
+rda_full <- rda(spe_hel ~ ., data = env_z)
+# 逐步向前变量选择，从空模型开始逐步添加最优变量，关闭过程输出
+rda_step <- ordiR2step(rda_empty, scope = formula(rda_full), trace = FALSE)
+# 查看选择后的模型结果
+summary(rda_step)
+```
+
+删除共线性较强的变量dfs、amm、pho，剩余变量符合要求。最后，我们筛选出了最优的环境变量组合，去除了冗余的变量，提升了模型的解释效率。
+
+#### 2.4.3 RDA结果与解释
+最终我们基于选择后的变量构建RDA模型，并绘制排序图展示结果：
+
+```{r rda_plot}
+# 提取RDA的站点坐标
+site_scores_rda_final <- as.data.frame(scores(rda_step, display = "sites"))
+site_scores_rda_final$site <- rownames(site_scores_rda_final)
+# 提取环境变量的坐标
+env_scores <- as.data.frame(scores(rda_step, display = "bp"))
+env_scores$var <- rownames(env_scores)
+# 提取物种的坐标
+sp_scores <- as.data.frame(scores(rda_step, display = "species"))
+sp_scores$sp <- rownames(sp_scores)
+
+# 绘制美观的RDA排序图，自动调整标签避免重叠
+ggplot() +
+  # 站点散点
+  geom_point(data = site_scores_rda_final, aes(x = RDA1, y = RDA2), size = 2) +
+  geom_text_repel(data = site_scores_rda_final, aes(x = RDA1, y = RDA2, label = site), size = 3) +
+  # 环境变量箭头
+  geom_segment(data = env_scores, aes(x = 0, y = 0, xend = RDA1, yend = RDA2), 
+               arrow = arrow(length = unit(0.2, "cm")), color = "blue", linewidth = 0.8) +
+  geom_text_repel(data = env_scores, aes(x = RDA1, y = RDA2, label = var), 
+                  color = "blue", size = 4, fontface = "bold") +
+  # 物种标签
+  geom_text_repel(data = sp_scores, aes(x = RDA1, y = RDA2, label = sp), 
+                  color = "red", size = 3) +
+  # 辅助线
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.7) +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.7) +
+  labs(title = "Doubs河鱼类群落-环境关系RDA排序图", x = "RDA1", y = "RDA2") +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5, size = 14))
+```
+
+从RDA排序图中，我们可以得到以下结论：
+1. 环境变量箭头清晰的展示了不同环境因子对鱼类群落的影响，海拔alt极显著，溶解氧oxy、硝酸盐nit、生化需氧量bdo显著，是影响鱼类群落分布的主要驱动因子。
+2. 站点的分布同样呈现出上游到下游的梯度，不同的鱼类物种对应不同的环境偏好：上游物种偏好高海拔、高氧的环境，下游物种偏好高营养盐的环境，完全符合河流生态的基本规律。
