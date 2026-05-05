@@ -58,14 +58,6 @@ ls("package:ggplot2")
 args(dplyr::filter)
 ```
 
-## 1.7 查看 diamonds 数据集
-```{r}
-data("diamonds", package = "ggplot2")
-head(diamonds)
-str(diamonds)
-summary(diamonds)
-```
-
 ---
 
 # 2. 自定义函数：判断随机向量是否高于阈值 35
