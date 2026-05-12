@@ -1,0 +1,101 @@
+---
+title: "Homework 202607"
+author: "曹力文 SA24008217"
+date: "2026-05-13"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
+
+作业1：对于Doubs数据集，采样点的坐标单位为米，但没有坐标系信息，只有利用QGIS通过地理配准方法确定。请简述利用QGIS获取地理坐标系的过程，并给出对应点的地理坐标。
+
+1. 导入采样点坐标 
+   在 QGIS 中通过「图层 → 添加分隔文本图层」导入无坐标系的 CSV 坐标文件，生成临时点图层
+   
+2. 安装地理配准插件  
+   安装 `Freehand Raster Georeferencer` 或 `Georeferencer` 插件，用于栅格配准。
+
+3. 加载底图与河流数据 
+   加载 OSM 在线底图，添加 `doubs_river` 河流矢量，将工程坐标系设置为 `EPSG:4326 (WGS84)`。
+
+4. 新建采样点图层  
+   创建点 Shapefile 图层，对照配准结果重新标记所有采样点并编号。
+
+6. 提取经纬度并导出  
+   使用「添加几何属性」工具生成经纬度字段，打开属性表查看坐标，并导出为 CSV。
+
+
+---
+
+作业2：利用ggplot2包，在doubs河流区域数字高程图（DEM）绘制doubs河流以及样点，请完成下列填空。
+
+```{r}
+library(ggplot2)
+library(sf)
+library(terra)
+
+# 读取数据
+doubs_river <- st_read("data/doubs_river.shp")
+doubs_pts <- st_read("sample_points.shp") 
+doubs_dem <- terra::rast("doubs_dem.tif") 
+
+# 转换为数据框
+dem_df <- as.data.frame(doubs_dem, xy = TRUE, na.rm = TRUE)
+
+# 统一坐标系
+st_crs(doubs_pts) <- st_crs(doubs_river)
+
+
+# 绘图
+ggplot() +
+  geom_raster(data = dem_df, aes(x = x, y = y, fill = lyr.1)) +
+  geom_sf(data = river, color = "blue", linewidth = 1.2) +
+  geom_sf(data = pts, color = "red", size = 4) +
+  labs(fill = "高程", x = "经度", y = "纬度") +
+  theme_minimal()
+```
+
+题目填空答案
+dem_df <- as.data.frame(doubs_dem, xy = TRUE, na.rm = TRUE)
+st_crs(doubs_dem) <- EPSG:4326
+st_crs(doubs_pts) <- st_crs(doubs_river)
+
+ggplot() +
+  geom_raster(data = dem_df, aes(x = x, y = y, fill = doubs_dem)) +
+  geom_sf(data = doubs_pts, aes(geometry = geometry), color = "red") +
+  geom_sf(data = doubs_river, aes(geometry = geometry), color = "yellow") +
+  theme_minimal()
+
+---
+
+作业3：为确定空间样点的属性值是否存在空间自相关，用邻居的值（空间滞后，spatial lag）去对比对自身值，请回答如下问题：1）下图展示中心样点（蓝色）的Rook邻近（黄色）和Queen邻近（黄色），请分别给出蓝色样点的两种空间邻近的空间权重。
+
+1）1）下图展示中心样点（蓝色）的Rook邻近（黄色）和Queen邻近（黄色），请分别给出蓝色样点的两种空间邻近的空间权重。
+
+- Rook 邻近：仅共享边为邻，中心点共 4 个邻居，权重 = 1/4 = 0.25  
+- Queen 邻近：共享边或顶点都算邻，中心点共 8 个邻居，权重 = 1/8 = 0.125
+
+ 2）常用Moran‘s scatter plot（MSL）和Lagged mean plot（LMP）两种图将空间滞后比对自身值，MSL和LMP图中的横坐标和纵坐标分别是什么？两图中都有一直线，此直线分别表达的意思是什么？
+ Moran’s scatter plot (MSL)
+- 横坐标：样点自身属性标准化值  
+- 纵坐标：空间滞后标准化值（邻居加权平均）  
+- 直线：拟合回归线，斜率 = 全局 Moran’s I，表示空间自相关方向与强度。
+
+ Lagged mean plot（LMP）
+- 横坐标：样点自身属性原始值  
+- 纵坐标：空间滞后均值（邻居平均）  
+- 直线：y=x 参考线，表示自身值与邻域均值完全相等。
+
+---
+
+作业4. 若样点属性值存在空间自相关，可以通过创建预测各网格，并计算各网格到样点的缓冲距离（buffer distance）作为机器学习模型的输入特征，请解释什么是缓冲距离。
+答：
+缓冲距离是指待预测网格中心点到最近已知采样点的欧氏直线距离。  
+在空间自相关存在时，将缓冲距离作为机器学习模型的输入特征，可以表达空间邻近效应，让模型学习“距离越近属性越相似”的地理规律，提升预测精度。
+
+---
+```
